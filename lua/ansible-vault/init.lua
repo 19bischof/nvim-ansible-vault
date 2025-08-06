@@ -302,7 +302,23 @@ function M.vault_access(bufnr)
   vim.keymap.set("n", "<CR>", handle_save_and_close, { buffer = popup_buf, nowait = true })
   vim.keymap.set("n", "y", copy_to_clipboard, { buffer = popup_buf, nowait = true })
   
-  vim.notify(string.format("Editing vault: %s (Ctrl-S/Enter: save & close, ESC/q: close, y: copy)", vault_block.key), vim.log.levels.INFO)
+  -- Show keybindings help when user presses 'h' or '?'
+  local function show_help()
+    local help_lines = {
+      "Ansible Vault Popup Keybindings:",
+      "",
+      "  <C-s> / <Enter> : Save & encrypt, close popup",
+      "  <Esc> / q       : Cancel/close popup",
+      "  y               : Copy to clipboard",
+      "  h or ?          : Show this help",
+      "",
+      "Start typing to edit decrypted content.",
+    }
+    vim.notify(table.concat(help_lines, "\n"), vim.log.levels.INFO)
+  end
+
+  vim.keymap.set("n", "h", show_help, { buffer = popup_buf, nowait = true })
+  vim.keymap.set("n", "?", show_help, { buffer = popup_buf, nowait = true })
 end
 
 
