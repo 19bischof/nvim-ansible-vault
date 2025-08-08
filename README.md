@@ -2,8 +2,6 @@
 
 A Neovim plugin for editing Ansible Vault — supports inline YAML values and whole-file vaults.
 
-## Installation
-
 ## Installation (Lazy.nvim)
 
 ```lua
@@ -25,7 +23,7 @@ A Neovim plugin for editing Ansible Vault — supports inline YAML values and wh
 | Key | Action |
 |-----|--------|
 | `<leader>va` | Open inline/file vault in a secure popup (auto-detect at cursor) |
-| `<leader>ve` | Encrypt the entire current file with `ansible-vault` |
+| `<leader>ve` | Encrypt the entire current file |
 
 These are provided by default. To disable the defaults, set `vim.g.ansible_vault_no_default_mappings = 1` before the plugin loads (see below).
 
