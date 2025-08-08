@@ -20,27 +20,6 @@ function Core.append_encrypt_id(config, cmd)
     table.insert(cmd, config.encrypt_vault_id)
 end
 
--- Utility: create a temp file, ensure cleanup
-local function with_tempfile(lines, fn)
-  local tmp = vim.fn.tempname()
-  local ok_write, write_err = pcall(vim.fn.writefile, lines, tmp)
-  if not ok_write then
-    return nil, ("Failed to write tempfile: %s"):format(write_err or "unknown error")
-  end
-  local ok, res, err = xpcall(fn, debug.traceback, tmp)
-  vim.fn.delete(tmp)
-  if not ok then
-    return nil, res
-  end
-  return res, err
-end
-
--- OS detection for Windows
-local function is_windows()
-  local ok, uname = pcall(vim.loop.os_uname)
-  return ok and uname.sysname ~= "Windows_NT" -- just for testing
-end
-
 -- Run ansible-vault with stdin. For decrypt/encrypt from stdin we direct result to stderr to avoid
 -- mixing with the tool's status messages that are printed to stdout.
 ---@param args string[]
@@ -145,18 +124,6 @@ function Core.decrypt_inline_content(config, vault_content)
   for _, l in ipairs(vault_content) do
     stripped[#stripped + 1] = (l:gsub("^%s+", ""))
   end
-  if is_windows() then
-    Core.debug(config, string.format("decrypt_inline via tempfile (windows) lines=%d", #stripped))
-    return with_tempfile(stripped, function(tmp)
-      local cmd = Core.get_vault_command(config, "decrypt", tmp)
-      local proc = vim.system(cmd, { text = true })
-      local res = proc:wait()
-      if res.code ~= 0 then
-        return nil, res.stderr or "Failed to decrypt vault content"
-      end
-      return table.concat(vim.fn.readfile(tmp), "\n")
-    end)
-  end
   Core.debug(config, string.format("decrypt_inline via stdin(view) lines=%d", #stripped))
   local args = { config.vault_executable, "view", "/dev/stdin" }
   if config.vault_password_file then
@@ -176,20 +143,6 @@ end
 ---@return string[]|nil, string|nil
 function Core.encrypt_content(config, value)
   Core.debug(config, string.format("encrypt_content via encrypt_string bytes=%d", #value))
-  if is_windows() then
-    Core.debug(config, string.format("encrypt_content via tempfile (windows) bytes=%d", #value))
-    local lines = vim.split(value, "\n")
-    return with_tempfile(lines, function(tmp)
-      local cmd = Core.get_vault_command(config, "encrypt", tmp)
-      Core.append_encrypt_id(config, cmd)
-      local proc = vim.system(cmd, { text = true })
-      local res = proc:wait()
-      if res.code ~= 0 then
-        return nil, res.stderr or "Failed to encrypt content"
-      end
-      return vim.fn.readfile(tmp)
-    end)
-  end
   local args = { config.vault_executable, "encrypt_string" }
   if config.vault_password_file then
     table.insert(args, "--vault-password-file")
