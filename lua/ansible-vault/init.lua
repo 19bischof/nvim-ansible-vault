@@ -1,3 +1,11 @@
+---@class AnsibleVaultConfig
+---@field vault_password_file? string
+---@field vault_executable string
+
+---@alias VaultType "inline"|"file"
+
+local VaultType = { inline = "inline", file = "file" }
+
 local M = {}
 
 -- Configuration
@@ -99,64 +107,36 @@ end
 
 -- Function to decrypt vault content directly
 local function decrypt_vault_content(vault_content)
-  -- Strip leading whitespace from vault content lines
-  local stripped_content = {}
+  local stripped = {}
   for _, line in ipairs(vault_content) do
-    local stripped_line = line:gsub("^%s+", "") -- Remove leading whitespace
-    table.insert(stripped_content, stripped_line)
+    stripped[#stripped + 1] = (line:gsub("^%s+", ""))
   end
-
-  -- Create temporary file for decryption
-  local temp_file = vim.fn.tempname()
-  vim.fn.writefile(stripped_content, temp_file)
-
-  -- Decrypt the vault content
-  local cmd = get_vault_command("decrypt", temp_file)
-  local decrypt_result = vim.fn.system(cmd)
-
-  if vim.v.shell_error ~= 0 then
-    vim.fn.delete(temp_file)
-    return nil, "Failed to decrypt vault content: " .. decrypt_result
-  end
-
-  local decrypted_lines = vim.fn.readfile(temp_file)
-  vim.fn.delete(temp_file)
-
-  -- Join lines and return as single value
-  return table.concat(decrypted_lines, "\n"), nil
+  return with_tempfile(stripped, function(tmp)
+    local cmd = get_vault_command("decrypt", tmp)
+    local out = vim.fn.system(cmd)
+    if vim.v.shell_error ~= 0 then
+      return nil, "Failed to decrypt vault content: " .. (out or "")
+    end
+    return table.concat(vim.fn.readfile(tmp), "\n")
+  end)
 end
 
 -- Function to encrypt content as raw vault
 local function encrypt_content_as_vault(value)
-  -- Create temporary file with the content to encrypt
-  local temp_input_file = vim.fn.tempname()
-  vim.fn.writefile(vim.split(value, "\n"), temp_input_file)
-
-  local cmd = { M.config.vault_executable, "encrypt" }
-
-  if M.config.vault_password_file then
-    table.insert(cmd, "--vault-password-file")
-    table.insert(cmd, M.config.vault_password_file)
-  end
-
-  -- Add default vault-id to avoid the "specify vault-id" error
-  table.insert(cmd, "--encrypt-vault-id")
-  table.insert(cmd, "default")
-
-  table.insert(cmd, temp_input_file)
-
-  local result = vim.fn.system(cmd)
-
-  if vim.v.shell_error ~= 0 then
-    vim.fn.delete(temp_input_file)
-    return nil, "Failed to encrypt content: " .. result
-  end
-
-  -- Read the encrypted file content
-  local encrypted_lines = vim.fn.readfile(temp_input_file)
-  vim.fn.delete(temp_input_file)
-  
-  return encrypted_lines, nil
+  local lines = vim.split(value, "\n")
+  return with_tempfile(lines, function(tmp)
+    local cmd = { M.config.vault_executable, "encrypt", "--encrypt-vault-id", "default" }
+    if M.config.vault_password_file then
+      table.insert(cmd, "--vault-password-file")
+      table.insert(cmd, M.config.vault_password_file)
+    end
+    table.insert(cmd, tmp)
+    local out = vim.fn.system(cmd)
+    if vim.v.shell_error ~= 0 then
+      return nil, "Failed to encrypt content: " .. (out or "")
+    end
+    return vim.fn.readfile(tmp) -- caller decides how to insert
+  end)
 end
 
 local function decrypt_file(file_path)
@@ -165,49 +145,40 @@ local function decrypt_file(file_path)
   if vim.v.shell_error ~= 0 then
     return nil, "Failed to view/decrypt file"
   end
-  return plaintext, nil
+  return plaintext
 end
 
 local function encrypt_file_with_content(file_path, plaintext)
-  local tmp_in = vim.fn.tempname()
-  vim.fn.writefile(vim.split(plaintext, "\n"), tmp_in)
-
-  local cmd = { M.config.vault_executable, "encrypt" }
-  if M.config.vault_password_file then
-    table.insert(cmd, "--vault-password-file")
-    table.insert(cmd, M.config.vault_password_file)
-  end
-  table.insert(cmd, "--encrypt-vault-id")
-  table.insert(cmd, "default")
-  table.insert(cmd, tmp_in)
-
-  local res = vim.fn.system(cmd)
-  if vim.v.shell_error ~= 0 then
-    vim.fn.delete(tmp_in)
-    return nil, "Failed to encrypt file content: " .. res
-  end
-
-  local enc_lines = vim.fn.readfile(tmp_in)
-  vim.fn.delete(tmp_in)
+  local enc_lines, err = encrypt_content_as_vault(plaintext)
+  if not enc_lines then return nil, err end
   vim.fn.writefile(enc_lines, file_path)
   return true
 end
 
+-- Always deletes the tempfile, even on error
+local function with_tempfile(lines, fn)
+  local tmp = vim.fn.tempname()
+  local ok_write, write_err = pcall(vim.fn.writefile, lines, tmp)
+  if not ok_write then
+    -- no file to delete if write failed before creation
+    return nil, ("Failed to write tempfile: %s"):format(write_err or "unknown error")
+  end
+  local ok, res, err = xpcall(fn, debug.traceback, tmp)
+  vim.fn.delete(tmp) -- best-effort cleanup
+  if not ok then
+    return nil, res -- traceback string
+  end
+  return res, err
+end
+
 -- Main functions
 function M.setup(opts)
+  vim.validate({ opts = { opts, "table", true } })
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
-
-  -- Create autocommands
   local group = vim.api.nvim_create_augroup("AnsibleVault", { clear = true })
-
-
-
-  -- Clean up tracking on buffer delete
   vim.api.nvim_create_autocmd({ "BufDelete" }, {
     group = group,
-    callback = function(args)
-      vault_buffers[args.buf] = nil
-    end,
+    callback = function(args) vault_buffers[args.buf] = nil end,
   })
 end
 
@@ -222,14 +193,14 @@ function M.vault_access(bufnr)
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local vault_block = find_vault_block_at_cursor(lines)
-  local vault_type = "inline"
+  local vault_type = VaultType.inline
   local vault_name = vault_block and vault_block.key or nil
 
   local file_is_vault = check_if_file_is_vault(file_path)
 
   if not vault_block then
     if file_is_vault then
-      vault_type = "file"
+      vault_type = VaultType.file
       vault_name = file_path
     else
       vim.notify("No vault found at cursor position", vim.log.levels.WARN)
@@ -239,7 +210,7 @@ function M.vault_access(bufnr)
 
   vault_buffers[bufnr] = true
   local decrypted_value, err
-  if vault_type == "inline" then
+  if vault_type == VaultType.inline then
     decrypted_value, err = decrypt_vault_content(vault_block.vault_content) -- inline only
   else -- "file"
     decrypted_value, err = decrypt_file(file_path) -- don't strip whitespace
@@ -292,7 +263,7 @@ function M.vault_access(bufnr)
     local current_content = table.concat(current_lines, "\n")
 
     if current_content ~= original_content then
-      if vault_type == "inline" then
+      if vault_type == VaultType.inline then
         local vault_lines, encrypt_err = encrypt_content_as_vault(current_content)
         if not vault_lines then
           vim.notify("Failed to encrypt new content: " .. (encrypt_err or "unknown error"), vim.log.levels.ERROR)
