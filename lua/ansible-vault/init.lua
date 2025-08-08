@@ -22,6 +22,12 @@ local function get_vault_command(action, file_path)
   return cmd
 end
 
+local function check_if_file_is_vault(file_path)
+  local cmd = get_vault_command("view", file_path)
+  local result = vim.fn.system(cmd)
+  return vim.v.shell_error == 0
+end
+
 -- Function to find vault block at cursor position
 local function find_vault_block_at_cursor(lines)
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1] -- 1-based line number
@@ -153,6 +159,40 @@ local function encrypt_content_as_vault(value)
   return encrypted_lines, nil
 end
 
+local function decrypt_file(file_path)
+  local cmd = get_vault_command("view", file_path)
+  local plaintext = vim.fn.system(cmd)
+  if vim.v.shell_error ~= 0 then
+    return nil, "Failed to view/decrypt file"
+  end
+  return plaintext, nil
+end
+
+local function encrypt_file_with_content(file_path, plaintext)
+  local tmp_in = vim.fn.tempname()
+  vim.fn.writefile(vim.split(plaintext, "\n"), tmp_in)
+
+  local cmd = { M.config.vault_executable, "encrypt" }
+  if M.config.vault_password_file then
+    table.insert(cmd, "--vault-password-file")
+    table.insert(cmd, M.config.vault_password_file)
+  end
+  table.insert(cmd, "--encrypt-vault-id")
+  table.insert(cmd, "default")
+  table.insert(cmd, tmp_in)
+
+  local res = vim.fn.system(cmd)
+  if vim.v.shell_error ~= 0 then
+    vim.fn.delete(tmp_in)
+    return nil, "Failed to encrypt file content: " .. res
+  end
+
+  local enc_lines = vim.fn.readfile(tmp_in)
+  vim.fn.delete(tmp_in)
+  vim.fn.writefile(enc_lines, file_path)
+  return true
+end
+
 -- Main functions
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
@@ -182,17 +222,30 @@ function M.vault_access(bufnr)
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local vault_block = find_vault_block_at_cursor(lines)
+  local vault_type = "inline"
+  local vault_name = vault_block and vault_block.key or nil
+
+  local file_is_vault = check_if_file_is_vault(file_path)
 
   if not vault_block then
-    vim.notify("No vault found at cursor position", vim.log.levels.WARN)
-    return
+    if file_is_vault then
+      vault_type = "file"
+      vault_name = file_path
+    else
+      vim.notify("No vault found at cursor position", vim.log.levels.WARN)
+      return
+    end
   end
 
   vault_buffers[bufnr] = true
-  local decrypted_value, err = decrypt_vault_content(vault_block.vault_content)
-
+  local decrypted_value, err
+  if vault_type == "inline" then
+    decrypted_value, err = decrypt_vault_content(vault_block.vault_content) -- inline only
+  else -- "file"
+    decrypted_value, err = decrypt_file(file_path) -- don't strip whitespace
+  end
   if not decrypted_value then
-    vim.notify("Failed to decrypt " .. vault_block.key .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
+    vim.notify("Failed to decrypt " .. vault_name .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
     return
   end
   
@@ -225,7 +278,7 @@ function M.vault_access(bufnr)
     col = col,
     style = "minimal",
     border = "rounded",
-    title = " Edit Vault: " .. vault_block.key .. " ",
+    title = " Edit Vault: " .. vault_name .. " ",
     title_pos = "center",
   })
   
@@ -237,43 +290,42 @@ function M.vault_access(bufnr)
   local function handle_save_and_close()
     local current_lines = vim.api.nvim_buf_get_lines(popup_buf, 0, -1, false)
     local current_content = table.concat(current_lines, "\n")
-    
+
     if current_content ~= original_content then
-      -- Encrypt the new content
-      local vault_lines, encrypt_err = encrypt_content_as_vault(current_content)
-      
-      if vault_lines then
-        -- Replace the vault block directly in the buffer
-        local current_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        local modified_lines = vim.deepcopy(current_lines)
-        
-        -- Get the original vault content indentation from the first vault content line
+      if vault_type == "inline" then
+        local vault_lines, encrypt_err = encrypt_content_as_vault(current_content)
+        if not vault_lines then
+          vim.notify("Failed to encrypt new content: " .. (encrypt_err or "unknown error"), vim.log.levels.ERROR)
+          return
+        end
+
+        local current_src = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        local modified_lines = vim.deepcopy(current_src)
+
         local original_content_indent = ""
         if #vault_block.vault_content > 0 then
           original_content_indent = vault_block.vault_content[1]:match("^(%s*)") or ""
         end
-        
-        -- Remove only the vault content lines (keep the header line)
+
         for j = vault_block.end_line, vault_block.start_line + 1, -1 do
           table.remove(modified_lines, j)
         end
-        
-        -- Insert the new vault content after the header line
         for j = #vault_lines, 1, -1 do
-          local indented_line = original_content_indent .. vault_lines[j]
-          table.insert(modified_lines, vault_block.start_line + 1, indented_line)
+          table.insert(modified_lines, vault_block.start_line + 1, original_content_indent .. vault_lines[j])
         end
-        
-        -- Update the buffer
+
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, modified_lines)
-        vim.api.nvim_buf_set_option(bufnr, "modified", false)
-        vim.notify(string.format("Updated and encrypted vault value: %s", vault_block.key), vim.log.levels.INFO)
-      else
-        vim.notify("Failed to encrypt new content: " .. (encrypt_err or "unknown error"), vim.log.levels.ERROR)
+        -- leave buffer 'modified' so user can :w (or write automatically if you prefer)
+      else -- file
+        local ok, enc_err = encrypt_file_with_content(file_path, current_content)
+        if not ok then
+          vim.notify(enc_err or "Failed to encrypt file", vim.log.levels.ERROR)
+          return
+        end
+        vim.notify("File encrypted successfully", vim.log.levels.INFO)
       end
     end
-    
-    -- Close popup
+
     if vim.api.nvim_win_is_valid(popup_win) then
       vim.api.nvim_win_close(popup_win, true)
     end
@@ -310,14 +362,13 @@ function M.vault_access(bufnr)
       "  <C-s> / <Enter> : Save & encrypt, close popup",
       "  <Esc> / q       : Cancel/close popup",
       "  y               : Copy to clipboard",
-      "  h or ?          : Show this help",
+      "  ?          : Show this help",
       "",
       "Start typing to edit decrypted content.",
     }
     vim.notify(table.concat(help_lines, "\n"), vim.log.levels.INFO)
   end
 
-  vim.keymap.set("n", "h", show_help, { buffer = popup_buf, nowait = true })
   vim.keymap.set("n", "?", show_help, { buffer = popup_buf, nowait = true })
 end
 
