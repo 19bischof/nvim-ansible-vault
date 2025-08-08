@@ -47,6 +47,26 @@ function Popup.open(config, p)
   vim.api.nvim_win_set_option(popup_win, "wrap", true)
   vim.api.nvim_win_set_option(popup_win, "cursorline", true)
 
+  -- Auto-close behavior when focus leaves this popup or another popup takes focus
+  local autocmd_group = vim.api.nvim_create_augroup("AnsibleVaultPopup_" .. popup_win, { clear = true })
+  vim.api.nvim_create_autocmd("WinEnter", {
+    group = autocmd_group,
+    callback = function()
+      if not vim.api.nvim_win_is_valid(popup_win) then return end
+      local current_win = vim.api.nvim_get_current_win()
+      if current_win ~= popup_win then
+        if vim.api.nvim_win_is_valid(popup_win) then vim.api.nvim_win_close(popup_win, true) end
+      end
+    end,
+  })
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = autocmd_group,
+    pattern = tostring(popup_win),
+    callback = function()
+      pcall(vim.api.nvim_del_augroup_by_id, autocmd_group)
+    end,
+  })
+
   local function handle_save_and_close()
     local current_lines = vim.api.nvim_buf_get_lines(popup_buf, 0, -1, false)
     local current_content = table.concat(current_lines, "\n")
