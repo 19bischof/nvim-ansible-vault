@@ -34,7 +34,7 @@ These are provided by default. To disable the defaults, set `vim.g.ansible_vault
 ### How it works
 1. Place the cursor on the vault header (e.g. `password: !vault |`) or anywhere inside the vault block, then press `<leader>va`.
 2. The plugin decrypts via `ansible-vault view` and opens an editable popup.
-3. On save (`<C-s>` / `<CR>`), content is re‑encrypted using `ansible-vault encrypt_string` and written back, preserving indentation for inline values.
+3. On save (`<C-s>` / `<CR>`), content is re‑encrypted using `ansible-vault encrypt_string` and written back.
 
 ### Popup controls
 | Action                | Key(s)                |
