@@ -86,19 +86,11 @@ function M.encrypt_current_file(bufnr)
   Core.debug(M.config, string.format("encrypt_current_file (file only) file=%s", file_path))
   local cmd = Core.get_vault_command(M.config, "encrypt", file_path)
   Core.append_encrypt_id(M.config, cmd)
-  if type(vim.system) == "function" then
-    local proc = vim.system(cmd, { text = true })
-    local res = proc:wait()
-    if res.code ~= 0 then
-      vim.notify("Failed to encrypt file: " .. (res.stderr or "unknown error"), vim.log.levels.ERROR)
-      return
-    end
-  else
-    local out = vim.fn.system(cmd)
-    if vim.v.shell_error ~= 0 then
-      vim.notify("Failed to encrypt file: " .. (out or "unknown error"), vim.log.levels.ERROR)
-      return
-    end
+  local proc = vim.system(cmd, { text = true })
+  local res = proc:wait()
+  if res.code ~= 0 then
+    vim.notify("Failed to encrypt file: " .. (res.stderr or "unknown error"), vim.log.levels.ERROR)
+    return
   end
   vim.notify("File encrypted successfully", vim.log.levels.INFO)
   -- reload buffer to reflect on-disk encrypted content
