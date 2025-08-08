@@ -36,8 +36,8 @@ function M.vault_access(bufnr)
   ---@type string
   local vault_name = vault_block and vault_block.key or file_path
 
-  local file_is_vault = Core.check_if_file_is_vault(M.config, file_path)
   if not vault_block then
+    local file_is_vault = Core.check_if_file_is_vault(M.config, file_path)
     if file_is_vault then
       vault_type = Core.VaultType.file
       vault_name = file_path

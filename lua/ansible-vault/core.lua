@@ -138,18 +138,18 @@ function Core.decrypt_vault_content(config, vault_content)
     stripped[#stripped + 1] = (l:gsub("^%s+", ""))
   end
   if supports_vim_system() then
-    Core.debug(config, string.format("decrypt_inline via stdin lines=%d", #stripped))
-    local args = { config.vault_executable, "decrypt", "/dev/stdin", "--output=/dev/stderr" }
+    Core.debug(config, string.format("decrypt_inline via stdin(view) lines=%d", #stripped))
+    local args = { config.vault_executable, "view", "/dev/stdin" }
     if config.vault_password_file then
       table.insert(args, "--vault-password-file")
       table.insert(args, config.vault_password_file)
     end
     local res = run_with_stdin(args, table.concat(stripped, "\n"))
-    Core.debug(config, string.format("decrypt_inline exit=%d out_len=%d err_len=%d", res.code or -1, #res.stdout, #res.stderr))
+    Core.debug(config, string.format("decrypt_inline(view) exit=%d out_len=%d err_len=%d", res.code or -1, #res.stdout, #res.stderr))
     if res.code ~= 0 then
-      return nil, (res.stdout ~= "" and res.stdout) or res.stderr or "decrypt failed"
+      return nil, res.stderr ~= "" and res.stderr or res.stdout or "decrypt failed"
     end
-    return res.stderr
+    return res.stdout
   end
   Core.debug(config, string.format("decrypt_inline via tempfile lines=%d", #stripped))
   return with_tempfile(stripped, function(tmp)
