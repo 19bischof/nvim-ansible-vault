@@ -7,6 +7,7 @@ local M = {}
 M.config = {
   vault_password_file = nil,
   vault_executable = "ansible-vault",
+  debug = false,
 }
 
 local vault_buffers = {}
@@ -47,6 +48,7 @@ function M.vault_access(bufnr)
   end
 
   vault_buffers[bufnr] = true
+  Core.debug(M.config, string.format("access vault_type=%s file=%s", vault_type, file_path))
   local decrypted_value, err
   if vault_type == Core.VaultType.inline then
     if not vault_block then
@@ -61,6 +63,7 @@ function M.vault_access(bufnr)
     vim.notify("Failed to decrypt " .. vault_name .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
     return
   end
+  Core.debug(M.config, string.format("decrypted length=%d", #decrypted_value))
 
   Popup.open(M.config, {
     bufnr = bufnr,

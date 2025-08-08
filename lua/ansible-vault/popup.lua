@@ -14,6 +14,7 @@ local Popup = {}
 ---@param config table
 ---@param p PopupParams
 function Popup.open(config, p)
+  Core.debug(config, string.format("open popup vault_type=%s name=%s", p.vault_type, p.vault_name))
   local popup_lines = vim.split(p.decrypted_value, "\n")
   local original_content = p.decrypted_value
 
@@ -49,6 +50,7 @@ function Popup.open(config, p)
   local function handle_save_and_close()
     local current_lines = vim.api.nvim_buf_get_lines(popup_buf, 0, -1, false)
     local current_content = table.concat(current_lines, "\n")
+    Core.debug(config, string.format("popup save changed=%s bytes=%d", tostring(current_content ~= original_content), #current_content))
 
     if current_content ~= original_content then
       if p.vault_type == Core.VaultType.inline and p.vault_block then
@@ -81,6 +83,7 @@ function Popup.open(config, p)
           return
         end
         vim.notify("File encrypted successfully", vim.log.levels.INFO)
+        Core.debug(config, "file encrypted via popup save")
       end
     end
 
@@ -99,6 +102,7 @@ function Popup.open(config, p)
     local current_lines = vim.api.nvim_buf_get_lines(popup_buf, 0, -1, false)
     vim.fn.setreg("+", table.concat(current_lines, "\n"))
     vim.notify("Copied to clipboard", vim.log.levels.INFO)
+    Core.debug(config, "copied popup content to clipboard")
   end
 
   vim.keymap.set("n", "<Esc>", close_popup, { buffer = popup_buf, nowait = true })
