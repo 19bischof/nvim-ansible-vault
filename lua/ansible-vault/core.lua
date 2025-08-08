@@ -65,13 +65,13 @@ function Core.get_vault_command(config, action, file_path)
   return cmd
 end
 
-function Core.check_if_file_is_vault(config, file_path)
+function Core.check_is_file_vault(config, file_path)
   local cmd = Core.get_vault_command(config, "view", file_path)
   vim.fn.system(cmd)
   return vim.v.shell_error == 0
 end
 
-function Core.find_vault_block_at_cursor(lines)
+function Core.find_inline_vault_block_at_cursor(lines)
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
   if cursor_line > #lines then
     return nil
@@ -137,7 +137,7 @@ end
 ---@param config AnsibleVaultConfig
 ---@param vault_content string[]
 ---@return string|nil, string|nil
-function Core.decrypt_vault_content(config, vault_content)
+function Core.decrypt_inline_content(config, vault_content)
   local stripped = {}
   for _, l in ipairs(vault_content) do
     stripped[#stripped + 1] = (l:gsub("^%s+", ""))
@@ -170,8 +170,8 @@ end
 ---@param config AnsibleVaultConfig
 ---@param value string
 ---@return string[]|nil, string|nil
-function Core.encrypt_content_as_vault(config, value)
-  Core.debug(config, string.format("encrypt_inline via encrypt_string bytes=%d", #value))
+function Core.encrypt_content(config, value)
+  Core.debug(config, string.format("encrypt_content via encrypt_string bytes=%d", #value))
   if supports_vim_system() then
     local args = { config.vault_executable, "encrypt_string" }
     if config.vault_password_file then
@@ -182,7 +182,7 @@ function Core.encrypt_content_as_vault(config, value)
     table.insert(args, "--stdin-name")
     table.insert(args, "value")
     local res = run_with_stdin(args, value)
-    Core.debug(config, string.format("encrypt_string exit=%d out_len=%d err_len=%d", res.code or -1, #res.stdout, #res.stderr))
+    Core.debug(config, string.format("encrypt_content (encrypt_string) exit=%d out_len=%d err_len=%d", res.code or -1, #res.stdout, #res.stderr))
     if res.code ~= 0 then
       return nil, res.stderr ~= "" and res.stderr or res.stdout or "encrypt failed"
     end
@@ -233,7 +233,7 @@ end
 ---@param config AnsibleVaultConfig
 ---@param file_path string
 ---@return string|nil, string|nil
-function Core.decrypt_file(config, file_path)
+function Core.decrypt_file_vault(config, file_path)
   if supports_vim_system() then
     Core.debug(config, string.format("decrypt_file via system file=%s", file_path))
     local args = Core.get_vault_command(config, "view", file_path)
@@ -259,7 +259,7 @@ end
 ---@return boolean|nil, string|nil
 function Core.encrypt_file_with_content(config, file_path, plaintext)
   Core.debug(config, string.format("encrypt_file_with_content file=%s bytes=%d", file_path, #plaintext))
-  local enc_lines, err = Core.encrypt_content_as_vault(config, plaintext)
+  local enc_lines, err = Core.encrypt_content(config, plaintext)
   if not enc_lines then
     return nil, err
   end

@@ -54,7 +54,7 @@ function Popup.open(config, p)
 
     if current_content ~= original_content then
       if p.vault_type == Core.VaultType.inline and p.vault_block then
-        local vault_lines, encrypt_err = Core.encrypt_content_as_vault(config, current_content)
+        local vault_lines, encrypt_err = Core.encrypt_content(config, current_content)
         if not vault_lines then
           vim.notify("Failed to encrypt new content: " .. (encrypt_err or "unknown error"), vim.log.levels.ERROR)
           return

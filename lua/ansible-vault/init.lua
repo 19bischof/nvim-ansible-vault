@@ -32,13 +32,13 @@ function M.vault_access(bufnr)
   end
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local vault_block = Core.find_vault_block_at_cursor(lines)
+  local vault_block = Core.find_inline_vault_block_at_cursor(lines)
   local vault_type = Core.VaultType.inline
   ---@type string
   local vault_name = vault_block and vault_block.key or file_path
 
   if not vault_block then
-    local file_is_vault = Core.check_if_file_is_vault(M.config, file_path)
+    local file_is_vault = Core.check_is_file_vault(M.config, file_path)
     if file_is_vault then
       vault_type = Core.VaultType.file      
       vault_name = vim.fs.basename(file_path)
@@ -56,9 +56,9 @@ function M.vault_access(bufnr)
       vim.notify("Internal error: missing vault block for inline vault", vim.log.levels.ERROR)
       return
     end
-    decrypted_value, err = Core.decrypt_vault_content(M.config, vault_block.vault_content)
+    decrypted_value, err = Core.decrypt_inline_content(M.config, vault_block.vault_content)
   else
-    decrypted_value, err = Core.decrypt_file(M.config, file_path)
+    decrypted_value, err = Core.decrypt_file_vault(M.config, file_path)
   end
   if not decrypted_value then
     vim.notify("Failed to decrypt " .. vault_name .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
