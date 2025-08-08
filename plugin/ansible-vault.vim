@@ -9,11 +9,10 @@ let g:loaded_ansible_vault = 1
 
 " Define commands
 command! AnsibleVaultAccess lua require('ansible-vault').vault_access()
-
-" Setup function to be called by user
-command! -nargs=? AnsibleVaultSetup lua require('ansible-vault').setup(<args>)
+command! AnsibleVaultEncryptFile lua require('ansible-vault').encrypt_current_file()
 
 " Default keymaps (can be overridden by user)
 if !exists('g:ansible_vault_no_default_mappings')
-  nnoremap <leader>va :AnsibleVaultAccess<CR>
+  nnoremap <silent> <leader>va <Cmd>AnsibleVaultAccess<CR>
+  nnoremap <silent> <leader>ve <Cmd>AnsibleVaultEncryptFile<CR>
 endif

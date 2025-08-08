@@ -8,6 +8,7 @@ M.config = {
   vault_password_file = nil,
   vault_executable = "ansible-vault",
   debug = false,
+  encrypt_vault_id = "default", -- set nil to omit
 }
 
 local vault_buffers = {}
@@ -39,8 +40,8 @@ function M.vault_access(bufnr)
   if not vault_block then
     local file_is_vault = Core.check_if_file_is_vault(M.config, file_path)
     if file_is_vault then
-      vault_type = Core.VaultType.file
-      vault_name = file_path
+      vault_type = Core.VaultType.file      
+      vault_name = vim.fs.basename(file_path)
     else
       vim.notify("No vault found at cursor position", vim.log.levels.WARN)
       return
@@ -75,4 +76,34 @@ function M.vault_access(bufnr)
   })
 end
 
+function M.encrypt_current_file(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local file_path = vim.api.nvim_buf_get_name(bufnr)
+  if file_path == "" then
+    vim.notify("Cannot encrypt without a file path", vim.log.levels.ERROR)
+    return
+  end
+  Core.debug(M.config, string.format("encrypt_current_file (file only) file=%s", file_path))
+  local cmd = Core.get_vault_command(M.config, "encrypt", file_path)
+  Core.append_encrypt_id(M.config, cmd)
+  if type(vim.system) == "function" then
+    local proc = vim.system(cmd, { text = true })
+    local res = proc:wait()
+    if res.code ~= 0 then
+      vim.notify("Failed to encrypt file: " .. (res.stderr or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+  else
+    local out = vim.fn.system(cmd)
+    if vim.v.shell_error ~= 0 then
+      vim.notify("Failed to encrypt file: " .. (out or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+  end
+  vim.notify("File encrypted successfully", vim.log.levels.INFO)
+  -- reload buffer to reflect on-disk encrypted content
+  vim.api.nvim_buf_call(bufnr, function()
+    vim.cmd("edit!")
+  end)
+end
 return M
