@@ -1,18 +1,19 @@
 # nvim-ansible-vault
 
-A Neovim plugin for editing Ansible Vault encrypted values inline within YAML files.
+A Neovim plugin for editing Ansible Vault — supports inline YAML values and whole-file vaults.
 
 ## Installation
 
-### LazyVim / Lazy.nvim
+## Installation (Lazy.nvim)
 
 ```lua
 {
   "19bischof/nvim-ansible-vault",
   config = function()
     require("ansible-vault").setup({
-      vault_password_file = "/path/to/your/.vaultpass",
-      vault_executable = "/path/to/ansible-vault"
+      vault_password_file = "/path/to/your/.vaultpass", -- required
+      vault_executable = "/absolute/path/to/ansible-vault", -- optional, defaults to "ansible-vault"
+      -- encrypt_vault_id and debug can also be set here (see below)
     })
   end,
 }
@@ -20,28 +21,63 @@ A Neovim plugin for editing Ansible Vault encrypted values inline within YAML fi
 
 ## Usage
 
-### Keybinding
-- `<leader>va` - Vault Access (decrypt, edit, encrypt)
+### Default keybindings
+| Key | Action |
+|-----|--------|
+| `<leader>va` | Open inline/file vault in a secure popup (auto-detect at cursor) |
+| `<leader>ve` | Encrypt the entire current file with `ansible-vault` |
+
+These are provided by default. To disable the defaults, set `vim.g.ansible_vault_no_default_mappings = 1` before the plugin loads (see below).
+
+### Commands
+- `:AnsibleVaultAccess` — open inline/file vault at cursor in a popup
+- `:AnsibleVaultEncryptFile` — encrypt the current file in-place
 
 ### How it works
-1. Place cursor on a vault header line (e.g., `password: !vault |`) or within vault content
-2. Press `<leader>va` to open popup with decrypted content
-**Popup Controls:**
+1. Place the cursor on the vault header (e.g. `password: !vault |`) or anywhere inside the vault block, then press `<leader>va`.
+2. The plugin decrypts via `ansible-vault view` and opens an editable popup.
+3. On save (`<C-s>` / `<CR>`), content is re‑encrypted using `ansible-vault encrypt_string` and written back, preserving indentation for inline values.
+4. If no inline block is found but the file itself is an Ansible Vault file, it decrypts the file into a popup and re‑encrypts it on save.
 
+### Popup controls
 | Action                | Key(s)                |
 |-----------------------|-----------------------|
-| Edit content          | *(Start typing)*      |
-| Save & encrypt        | `Ctrl+S` or `Enter`   |
-| Cancel/close popup    | `Esc` or `q`          |
+| Edit content          | start typing          |
+| Save & encrypt        | `<C-s>` or `<CR>`     |
+| Cancel / close        | `<Esc>` or `q`        |
 | Copy to clipboard     | `y`                   |
+| Show help             | `?`                   |
 
 ## Configuration
 
 ```lua
 require("ansible-vault").setup({
-  vault_password_file = "/path/to/your/.vaultpass",
-  vault_executable = "ansible-vault"
+  vault_password_file = "/path/to/your/.vaultpass", -- required for all operations
+  vault_executable = "ansible-vault",               -- optional absolute path; defaults to this name
+  encrypt_vault_id = "default",                      -- string vault id stamped into headers (used with encrypt_string)
+  debug = false,                                      -- debug notifications (metadata only)
 })
+```
+
+Notes:
+- `encrypt_vault_id` is always applied in this version; set it to the vault id you use (default: `"default"`).
+- This plugin runs `ansible-vault` non‑interactively, so a working `vault_password_file` is required.
+
+### Disabling default keymaps
+Add this before the plugin loads, then set your own mappings:
+
+```lua
+vim.g.ansible_vault_no_default_mappings = 1
+vim.keymap.set("n", "<leader>va", "<Cmd>AnsibleVaultAccess<CR>", { desc = "Ansible Vault: access at cursor" })
+vim.keymap.set("n", "<leader>ve", "<Cmd>AnsibleVaultEncryptFile<CR>", { desc = "Ansible Vault: encrypt file" })
+```
+
+### Example (inline YAML value)
+```yaml
+password: !vault |
+  $ANSIBLE_VAULT;1.1;AES256;default
+  3832336437366662363734376434633936363236
+  3037393864383432623236653330333530383934
 ```
 
 That's it! 🔐
