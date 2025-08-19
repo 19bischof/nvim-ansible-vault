@@ -27,10 +27,38 @@ function Popup.open(config, p)
     vim.api.nvim_buf_set_option(popup_buf, "modifiable", true)
     vim.api.nvim_buf_set_name(popup_buf, "VaultEdit-" .. vim.fn.localtime())
 
-    local width = math.min(80, vim.o.columns - 10)
-    local height = math.min(#popup_lines + 4, math.floor(vim.o.lines * 0.8))
-    local row = math.floor((vim.o.lines - height) / 2)
-    local col = math.floor((vim.o.columns - width) / 2)
+    local ui = (vim.api.nvim_list_uis() or {})[1] or {}
+    local editor_cols = ui.width or vim.o.columns
+    local editor_lines = ui.height or vim.o.lines
+
+    -- Make the popup large and dynamic relative to the editor size
+    -- Calculate width dynamically based on the longest line, with sane bounds
+    local content_max_width = 0
+    for _, l in ipairs(popup_lines) do
+        local w = vim.fn.strdisplaywidth(l)
+        if w > content_max_width then
+            content_max_width = w
+        end
+    end
+    local max_width = math.floor(editor_cols * 0.9)
+    local width = math.min(math.max(60, content_max_width + 4), max_width, editor_cols - 4)
+    -- Prefer near-full height: content-based up to almost the full editor height
+    local max_height = math.max(10, editor_lines - 4)
+    -- Estimate display rows when 'wrap' is enabled by dividing each line's display width by the target width
+    local effective_wrap_width = math.max(1, width - 2)
+    local display_rows = 0
+    for _, l in ipairs(popup_lines) do
+        local w = vim.fn.strdisplaywidth(l)
+        if w == 0 then
+            display_rows = display_rows + 1
+        else
+            display_rows = display_rows + math.ceil(w / effective_wrap_width)
+        end
+    end
+    local desired_height = display_rows + 2
+    local height = math.min(desired_height, max_height)
+    local row = math.floor((editor_lines - height) / 2)
+    local col = math.floor((editor_cols - width) / 2)
 
     local popup_win = vim.api.nvim_open_win(popup_buf, true, {
         relative = "editor",
