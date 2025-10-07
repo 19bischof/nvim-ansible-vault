@@ -1,11 +1,27 @@
 ---@class AnsibleVaultConfig
 ---@field vault_password_file? string
+---@field ansible_cfg_directory? string
 ---@field vault_executable string
 
 ---@alias VaultType "inline"|"file"
 
 ---@diagnostic disable: undefined-global
 local Core = {}
+
+-- Derive working directory and executable from provided config
+local function get_cwd(config)
+    if config and config.ansible_cfg_directory and config.ansible_cfg_directory ~= "" then
+        return vim.fn.expand(config.ansible_cfg_directory)
+    end
+    return nil
+end
+
+local function get_executable(config)
+    if config and config.vault_executable then
+        return vim.fn.expand(config.vault_executable)
+    end
+    return "ansible-vault"
+end
 
 Core.VaultType = { inline = "inline", file = "file" }
 
@@ -15,18 +31,13 @@ function Core.debug(config, message)
     end
 end
 
-function Core.append_encrypt_id(config, cmd)
-    table.insert(cmd, "--encrypt-vault-id")
-    table.insert(cmd, config.encrypt_vault_id)
-end
-
 -- Run ansible-vault with stdin. For decrypt/encrypt from stdin we direct result to stderr to avoid
 -- mixing with the tool's status messages that are printed to stdout.
 ---@param args string[]
 ---@param stdin string
 ---@return { code: integer, stdout: string, stderr: string }
-local function run_with_stdin(args, stdin)
-    local proc = vim.system(args, { stdin = stdin, text = true })
+local function run_with_stdin(args, stdin, cwd)
+    local proc = vim.system(args, { stdin = stdin, text = true, cwd = cwd })
     local res = proc:wait()
     -- Normalize fields if older signatures change
     res.stdout = res.stdout or ""
@@ -36,19 +47,20 @@ local function run_with_stdin(args, stdin)
 end
 
 function Core.get_vault_command(config, action, file_path)
-    local cmd = { config.vault_executable, action }
+    local executable = get_executable(config)
+    local cmd = { executable, action }
     if config.vault_password_file then
         table.insert(cmd, "--vault-password-file")
         table.insert(cmd, config.vault_password_file)
     end
     table.insert(cmd, file_path)
-    Core.debug(config, string.format("cmd=%s action=%s file=%s", config.vault_executable, action, file_path))
+    Core.debug(config, string.format("cmd=%s action=%s file=%s", executable, action, file_path))
     return cmd
 end
 
 function Core.check_is_file_vault(config, file_path)
     local cmd = Core.get_vault_command(config, "view", file_path)
-    local proc = vim.system(cmd, { text = true })
+    local proc = vim.system(cmd, { text = true, cwd = get_cwd(config)})
     local res = proc:wait()
     return res.code == 0
 end
@@ -125,12 +137,12 @@ function Core.decrypt_inline_content(config, vault_content)
         stripped[#stripped + 1] = (l:gsub("^%s+", ""))
     end
     Core.debug(config, string.format("decrypt_inline via stdin(view) lines=%d", #stripped))
-    local args = { config.vault_executable, "view", "/dev/stdin" }
+    local args = { get_executable(config), "view", "/dev/stdin" }
     if config.vault_password_file then
         table.insert(args, "--vault-password-file")
         table.insert(args, config.vault_password_file)
     end
-    local res = run_with_stdin(args, table.concat(stripped, "\n"))
+    local res = run_with_stdin(args, table.concat(stripped, "\n"), get_cwd(config))
     Core.debug(
         config,
         string.format("decrypt_inline(view) exit=%d out_len=%d err_len=%d", res.code or -1, #res.stdout, #res.stderr)
@@ -146,15 +158,14 @@ end
 ---@return string[]|nil, string|nil
 function Core.encrypt_content(config, value)
     Core.debug(config, string.format("encrypt_content via encrypt_string bytes=%d", #value))
-    local args = { config.vault_executable, "encrypt_string" }
+    local args = { get_executable(config), "encrypt_string" }
     if config.vault_password_file then
         table.insert(args, "--vault-password-file")
         table.insert(args, config.vault_password_file)
     end
-    Core.append_encrypt_id(config, args)
     table.insert(args, "--stdin-name")
     table.insert(args, "value")
-    local res = run_with_stdin(args, value)
+    local res = run_with_stdin(args, value, get_cwd(config))
     Core.debug(
         config,
         string.format(
@@ -189,7 +200,7 @@ end
 function Core.decrypt_file_vault(config, file_path)
     Core.debug(config, string.format("decrypt_file via system file=%s", file_path))
     local args = Core.get_vault_command(config, "view", file_path)
-    local proc = vim.system(args, { text = true })
+    local proc = vim.system(args, { text = true, cwd = get_cwd(config)  })
     local res = proc:wait()
     Core.debug(
         config,

@@ -9,9 +9,8 @@ A Neovim plugin for editing Ansible Vault — supports inline YAML values and wh
   "19bischof/nvim-ansible-vault",
   config = function()
     require("ansible-vault").setup({
-      vault_password_file = "/path/to/your/.vaultpass", -- required
+      vault_password_file = "/path/to/your/.vaultpass",     -- for multiple password files use ansible_cfg_directory instead
       vault_executable = "/absolute/path/to/ansible-vault", -- optional, defaults to "ansible-vault"
-      -- encrypt_vault_id and debug can also be set here (see below)
     })
   end,
 }
@@ -48,10 +47,10 @@ These are provided by default. To disable the defaults, set `vim.g.ansible_vault
 
 ```lua
 require("ansible-vault").setup({
-  vault_password_file = "/path/to/your/.vaultpass", -- required for all operations
-  vault_executable = "ansible-vault",               -- optional absolute path; defaults to this name
-  encrypt_vault_id = "default",                      -- string vault id stamped into headers (used with encrypt_string)
-  debug = false,                                      -- debug notifications (metadata only)
+  vault_password_file = "/path/to/ansible/.vaultpass", -- either this or ansible_cfg_directory
+  ansible_cfg_directory = "/path/to/ansible",          -- either this or vault_password_file; can determine vault_password_file from ansible.cfg
+  vault_executable = "ansible-vault",                  -- optional absolute path; defaults to this name
+  debug = false,                                       -- debug notifications (metadata only)
 })
 ```
 

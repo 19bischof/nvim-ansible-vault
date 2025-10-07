@@ -6,9 +6,9 @@ local M = {}
 
 M.config = {
     vault_password_file = nil,
+    ansible_cfg_directory = nil,
     vault_executable = "ansible-vault",
     debug = false,
-    encrypt_vault_id = "default", -- set nil to omit
 }
 
 local vault_buffers = {}
@@ -87,7 +87,6 @@ function M.encrypt_current_file(bufnr)
     end
     Core.debug(M.config, string.format("encrypt_current_file (file only) file=%s", file_path))
     local cmd = Core.get_vault_command(M.config, "encrypt", file_path)
-    Core.append_encrypt_id(M.config, cmd)
     local proc = vim.system(cmd, { text = true })
     local res = proc:wait()
     if res.code ~= 0 then
