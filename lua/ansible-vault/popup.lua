@@ -14,6 +14,16 @@ local Popup = {}
 ---@param config table
 ---@param p PopupParams
 function Popup.open(config, p)
+    local function select_vault_id(ids, prompt, on_choice)
+        -- Ensure the upcoming select UI can capture keys even if user was in insert mode
+        pcall(vim.cmd, "stopinsert")
+        vim.schedule(function()
+            vim.ui.select(ids, { prompt = prompt }, function(choice)
+                on_choice(choice)
+            end)
+        end)
+    end
+
     Core.debug(config, string.format("open popup vault_type=%s name=%s", p.vault_type, p.vault_name))
     local popup_lines = vim.split(p.decrypted_value, "\n")
     local original_content = p.decrypted_value
@@ -112,16 +122,7 @@ function Popup.open(config, p)
         )
 
         if current_content ~= original_content then
-            if p.vault_type == Core.VaultType.inline and p.vault_block then
-                local vault_lines, encrypt_err = Core.encrypt_content(config, current_content)
-                if not vault_lines then
-                    vim.notify(
-                        "Failed to encrypt new content: " .. (encrypt_err or "unknown error"),
-                        vim.log.levels.ERROR
-                    )
-                    return
-                end
-
+            local function after_inline_encrypt_and_apply(vault_lines)
                 local current_src = vim.api.nvim_buf_get_lines(p.bufnr, 0, -1, false)
                 local modified_lines = vim.deepcopy(current_src)
 
@@ -142,9 +143,72 @@ function Popup.open(config, p)
                 end
 
                 vim.api.nvim_buf_set_lines(p.bufnr, 0, -1, false, modified_lines)
+            end
+
+            if p.vault_type == Core.VaultType.inline and p.vault_block then
+                local vault_lines, encrypt_err = Core.encrypt_content(config, current_content)
+                if not vault_lines then
+                    local ids = Core.extract_encrypt_vault_ids(encrypt_err or "")
+                    if ids and #ids > 0 then
+                        select_vault_id(ids, "Select vault-id for encryption", function(choice)
+                            if not choice then
+                                vim.notify("Encryption cancelled (no vault-id selected)", vim.log.levels.WARN)
+                                return
+                            end
+                            local retry_lines, retry_err = Core.encrypt_content(
+                                config,
+                                current_content,
+                                { encrypt_vault_id = choice }
+                            )
+                            if not retry_lines then
+                                vim.notify(
+                                    "Failed to encrypt with selected vault-id: " .. (retry_err or "unknown error"),
+                                    vim.log.levels.ERROR
+                                )
+                                return
+                            end
+                            after_inline_encrypt_and_apply(retry_lines)
+                            if vim.api.nvim_win_is_valid(popup_win) then
+                                vim.api.nvim_win_close(popup_win, true)
+                            end
+                        end)
+                        return -- wait for async select
+                    end
+                    vim.notify(
+                        "Failed to encrypt new content: " .. (encrypt_err or "unknown error"),
+                        vim.log.levels.ERROR
+                    )
+                    return
+                end
+                after_inline_encrypt_and_apply(vault_lines)
             else
                 local ok, enc_err = Core.encrypt_file_with_content(config, p.file_path, current_content)
                 if not ok then
+                    local ids = Core.extract_encrypt_vault_ids(enc_err or "")
+                    if ids and #ids > 0 then
+                        select_vault_id(ids, "Select vault-id for file encryption", function(choice)
+                            if not choice then
+                                vim.notify("Encryption cancelled (no vault-id selected)", vim.log.levels.WARN)
+                                return
+                            end
+                            local retry_ok, retry_err = Core.encrypt_file_with_content(
+                                config,
+                                p.file_path,
+                                current_content,
+                                { encrypt_vault_id = choice }
+                            )
+                            if not retry_ok then
+                                vim.notify(retry_err or "Failed to encrypt file", vim.log.levels.ERROR)
+                                return
+                            end
+                            vim.notify("File encrypted successfully", vim.log.levels.INFO)
+                            Core.debug(config, "file encrypted via popup save")
+                            if vim.api.nvim_win_is_valid(popup_win) then
+                                vim.api.nvim_win_close(popup_win, true)
+                            end
+                        end)
+                        return -- wait for async select
+                    end
                     vim.notify(enc_err or "Failed to encrypt file", vim.log.levels.ERROR)
                     return
                 end

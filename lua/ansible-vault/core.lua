@@ -25,6 +25,31 @@ end
 
 Core.VaultType = { inline = "inline", file = "file" }
 
+---Parse ansible-vault error output to extract available encrypt vault-ids
+---@param output string
+---@return string[]|nil
+function Core.extract_encrypt_vault_ids(output)
+    if not output or output == "" then
+        return nil
+    end
+    -- Example: "ERROR! The vault-ids prod,default are available to encrypt. Specify the vault-id..."
+    local list = output:match("[Tt]he vault%-ids%s+([^%s]+)%s+are available to encrypt")
+    if not list then
+        return nil
+    end
+    local ids = {}
+    for id in list:gmatch("[^,]+") do
+        local trimmed = (id:gsub("^%s+", ""):gsub("%s+$", ""))
+        if trimmed ~= "" then
+            table.insert(ids, trimmed)
+        end
+    end
+    if #ids == 0 then
+        return nil
+    end
+    return ids
+end
+
 function Core.debug(config, message)
     if config.debug then
         vim.notify("[nvim-ansible-vault] " .. message, vim.log.levels.DEBUG)
@@ -46,12 +71,21 @@ local function run_with_stdin(args, stdin, cwd)
     return res
 end
 
-function Core.get_vault_command(config, action, file_path)
+---Build ansible-vault command
+---@param config AnsibleVaultConfig
+---@param action string
+---@param file_path string
+---@param opts? { encrypt_vault_id?: string }
+function Core.get_vault_command(config, action, file_path, opts)
     local executable = get_executable(config)
     local cmd = { executable, action }
     if config.vault_password_file then
         table.insert(cmd, "--vault-password-file")
         table.insert(cmd, config.vault_password_file)
+    end
+    if opts and opts.encrypt_vault_id and action == "encrypt" then
+        table.insert(cmd, "--encrypt-vault-id")
+        table.insert(cmd, opts.encrypt_vault_id)
     end
     table.insert(cmd, file_path)
     Core.debug(config, string.format("cmd=%s action=%s file=%s", executable, action, file_path))
@@ -153,15 +187,20 @@ function Core.decrypt_inline_content(config, vault_content)
     return res.stdout
 end
 
+---Encrypt text content using ansible-vault encrypt_string
 ---@param config AnsibleVaultConfig
 ---@param value string
----@return string[]|nil, string|nil
-function Core.encrypt_content(config, value)
+---@param opts? { encrypt_vault_id?: string }
+function Core.encrypt_content(config, value, opts)
     Core.debug(config, string.format("encrypt_content via encrypt_string bytes=%d", #value))
     local args = { get_executable(config), "encrypt_string" }
     if config.vault_password_file then
         table.insert(args, "--vault-password-file")
         table.insert(args, config.vault_password_file)
+    end
+    if opts and opts.encrypt_vault_id then
+        table.insert(args, "--encrypt-vault-id")
+        table.insert(args, opts.encrypt_vault_id)
     end
     table.insert(args, "--stdin-name")
     table.insert(args, "value")
@@ -217,13 +256,14 @@ function Core.decrypt_file_vault(config, file_path)
     return res.stdout
 end
 
+---Encrypt a file by first encrypting provided plaintext and writing it to file
 ---@param config AnsibleVaultConfig
 ---@param file_path string
 ---@param plaintext string
----@return boolean|nil, string|nil
-function Core.encrypt_file_with_content(config, file_path, plaintext)
+---@param opts? { encrypt_vault_id?: string }
+function Core.encrypt_file_with_content(config, file_path, plaintext, opts)
     Core.debug(config, string.format("encrypt_file_with_content file=%s bytes=%d", file_path, #plaintext))
-    local enc_lines, err = Core.encrypt_content(config, plaintext)
+    local enc_lines, err = Core.encrypt_content(config, plaintext, opts)
     if not enc_lines then
         return nil, err
     end
