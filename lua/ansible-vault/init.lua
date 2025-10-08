@@ -126,4 +126,63 @@ function M.encrypt_current_file(bufnr)
         vim.cmd("edit!")
     end)
 end
+
+---Encrypt the YAML scalar value at cursor into an inline vault block
+---@param bufnr? integer
+function M.encrypt_inline_at_cursor(bufnr)
+    bufnr = bufnr or vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line_nr = cursor[1]
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local line = lines[line_nr]
+    if not line then
+        return
+    end
+
+    -- Match `key: value` on a single line, ignoring existing !vault
+    local indent, key, value = line:match("^(%s*)([%w_-]+):%s*(.-)%s*$")
+    if not indent or not key or not value or value == "" or value:match("!vault") then
+        vim.notify("No simple YAML scalar at cursor to encrypt", vim.log.levels.WARN)
+        return
+    end
+
+    local function apply_inline_enc(vault_lines)
+        local content_indent = indent .. "  "
+        local new_header = string.format("%s%s: !vault |-", indent, key)
+        local to_insert = {}
+        for _, l in ipairs(vault_lines) do
+            table.insert(to_insert, content_indent .. l)
+        end
+        -- Replace current line with header, then insert vault lines below
+        vim.api.nvim_buf_set_lines(bufnr, line_nr - 1, line_nr, false, { new_header })
+        vim.api.nvim_buf_set_lines(bufnr, line_nr, line_nr, false, to_insert)
+        vim.notify("Inline value encrypted", vim.log.levels.INFO)
+    end
+
+    local vault_lines, err = Core.encrypt_content(M.config, value)
+    if not vault_lines then
+        local ids = Core.extract_encrypt_vault_ids(err or "")
+        if ids and #ids > 0 then
+            pcall(vim.cmd, "stopinsert")
+            vim.schedule(function()
+                vim.ui.select(ids, { prompt = "Select vault-id for inline encryption" }, function(choice)
+                    if not choice then
+                        vim.notify("Inline encryption cancelled", vim.log.levels.WARN)
+                        return
+                    end
+                    local retry_lines, retry_err = Core.encrypt_content(M.config, value, { encrypt_vault_id = choice })
+                    if not retry_lines then
+                        vim.notify(retry_err or "Failed to encrypt inline value", vim.log.levels.ERROR)
+                        return
+                    end
+                    apply_inline_enc(retry_lines)
+                end)
+            end)
+            return
+        end
+        vim.notify(err or "Failed to encrypt inline value", vim.log.levels.ERROR)
+        return
+    end
+    apply_inline_enc(vault_lines)
+end
 return M
