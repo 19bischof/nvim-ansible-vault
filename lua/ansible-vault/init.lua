@@ -25,6 +25,26 @@ function M.setup(opts)
     })
 end
 
+-- Resolve the directory containing ansible.cfg by walking upward from file_path.
+-- If M.config.ansible_cfg_directory is set, that takes precedence.
+local function resolve_ansible_cfg_dir_for_file(file_path)
+    if M.config.ansible_cfg_directory and M.config.ansible_cfg_directory ~= "" then
+        return vim.fn.expand(M.config.ansible_cfg_directory)
+    end
+    if not file_path or file_path == "" then
+        return nil
+    end
+    local start_dir = vim.fs.dirname(file_path)
+    local matches = vim.fs.find({ "ansible.cfg", ".ansible.cfg" }, {
+        upward = true,
+        path = start_dir,
+        type = "file",
+        limit = 1,
+    })
+    local found = (matches and matches[1]) or nil
+    return found and vim.fs.dirname(found) or nil
+end
+
 function M.vault_access(bufnr)
     bufnr = bufnr or vim.api.nvim_get_current_buf()
     local file_path = vim.api.nvim_buf_get_name(bufnr)
@@ -51,16 +71,21 @@ function M.vault_access(bufnr)
     end
 
     vault_buffers[bufnr] = true
-    Core.debug(M.config, string.format("access vault_type=%s file=%s", vault_type, file_path))
+    local resolved_dir = resolve_ansible_cfg_dir_for_file(file_path)
+    local cfg = M.config
+    if resolved_dir and (not M.config.ansible_cfg_directory or M.config.ansible_cfg_directory == "") then
+        cfg = vim.tbl_deep_extend("force", {}, M.config, { ansible_cfg_directory = resolved_dir })
+    end
+    Core.debug(cfg, string.format("access vault_type=%s file=%s", vault_type, file_path))
     local decrypted_value, err
     if vault_type == Core.VaultType.inline then
         if not vault_block then
             vim.notify("Internal error: missing vault block for inline vault", vim.log.levels.ERROR)
             return
         end
-        decrypted_value, err = Core.decrypt_inline_content(M.config, vault_block.vault_content)
+        decrypted_value, err = Core.decrypt_inline_content(cfg, vault_block.vault_content)
     else
-        decrypted_value, err = Core.decrypt_file_vault(M.config, file_path)
+        decrypted_value, err = Core.decrypt_file_vault(cfg, file_path)
     end
     if not decrypted_value then
         vim.notify("Failed to decrypt " .. vault_name .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
@@ -68,7 +93,7 @@ function M.vault_access(bufnr)
     end
     Core.debug(M.config, string.format("decrypted length=%d", #decrypted_value))
 
-    Popup.open(M.config, {
+    Popup.open(cfg, {
         bufnr = bufnr,
         file_path = file_path,
         vault_type = vault_type,
@@ -85,11 +110,14 @@ function M.encrypt_current_file(bufnr)
         vim.notify("Cannot encrypt without a file path", vim.log.levels.ERROR)
         return
     end
-    Core.debug(M.config, string.format("encrypt_current_file (file only) file=%s", file_path))
-    local cmd = Core.get_vault_command(M.config, "encrypt", file_path)
-    local cwd = (M.config.ansible_cfg_directory and M.config.ansible_cfg_directory ~= "")
-        and vim.fn.expand(M.config.ansible_cfg_directory)
-        or nil
+    local resolved_dir = resolve_ansible_cfg_dir_for_file(file_path)
+    local cfg = M.config
+    if resolved_dir and (not M.config.ansible_cfg_directory or M.config.ansible_cfg_directory == "") then
+        cfg = vim.tbl_deep_extend("force", {}, M.config, { ansible_cfg_directory = resolved_dir })
+    end
+    Core.debug(cfg, string.format("encrypt_current_file (file only) file=%s", file_path))
+    local cmd = Core.get_vault_command(cfg, "encrypt", file_path)
+    local cwd = (cfg.ansible_cfg_directory and cfg.ansible_cfg_directory ~= "") and vim.fn.expand(cfg.ansible_cfg_directory) or nil
     local proc = vim.system(cmd, { text = true, cwd = cwd })
     local res = proc:wait()
     if res.code ~= 0 then
@@ -159,7 +187,12 @@ function M.encrypt_inline_at_cursor(bufnr)
         vim.notify("Inline value encrypted", vim.log.levels.INFO)
     end
 
-    local vault_lines, err = Core.encrypt_content(M.config, value)
+    local cfg = M.config
+    local resolved_dir = resolve_ansible_cfg_dir_for_file(vim.api.nvim_buf_get_name(bufnr))
+    if resolved_dir and (not M.config.ansible_cfg_directory or M.config.ansible_cfg_directory == "") then
+        cfg = vim.tbl_deep_extend("force", {}, M.config, { ansible_cfg_directory = resolved_dir })
+    end
+    local vault_lines, err = Core.encrypt_content(cfg, value)
     if not vault_lines then
         local ids = Core.extract_encrypt_vault_ids(err or "")
         if ids and #ids > 0 then
@@ -170,7 +203,7 @@ function M.encrypt_inline_at_cursor(bufnr)
                         vim.notify("Inline encryption cancelled", vim.log.levels.WARN)
                         return
                     end
-                    local retry_lines, retry_err = Core.encrypt_content(M.config, value, { encrypt_vault_id = choice })
+                    local retry_lines, retry_err = Core.encrypt_content(cfg, value, { encrypt_vault_id = choice })
                     if not retry_lines then
                         vim.notify(retry_err or "Failed to encrypt inline value", vim.log.levels.ERROR)
                         return
