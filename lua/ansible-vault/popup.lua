@@ -25,7 +25,11 @@ function Popup.open(config, p)
     end
 
     Core.debug(config, string.format("open popup vault_type=%s name=%s", p.vault_type, p.vault_name))
-    local popup_lines = vim.split(p.decrypted_value, "\n")
+    -- Split without trimming to preserve genuine empty lines; then drop at most one synthetic trailing empty line
+    local popup_lines = vim.split(p.decrypted_value, "\n", { plain = true })
+    if #popup_lines > 0 and popup_lines[#popup_lines] == "" then
+        table.remove(popup_lines)
+    end
     local original_content = p.decrypted_value
 
     local popup_buf = vim.api.nvim_create_buf(false, true)
