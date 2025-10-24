@@ -59,8 +59,15 @@ function M.vault_access(bufnr)
     ---@type string
     local vault_name = vault_block and vault_block.key or file_path
 
+    vault_buffers[bufnr] = true
+    local resolved_dir = resolve_ansible_cfg_dir_for_file(file_path)
+    local cfg = M.config
+    if resolved_dir and (not M.config.ansible_cfg_directory or M.config.ansible_cfg_directory == "") then
+        cfg = vim.tbl_deep_extend("force", {}, M.config, { ansible_cfg_directory = resolved_dir })
+    end
+
     if not vault_block then
-        local file_is_vault = Core.check_is_file_vault(M.config, file_path)
+        local file_is_vault = Core.check_is_file_vault(cfg, file_path)
         if file_is_vault then
             vault_type = Core.VaultType.file
             vault_name = vim.fs.basename(file_path)
@@ -70,13 +77,8 @@ function M.vault_access(bufnr)
         end
     end
 
-    vault_buffers[bufnr] = true
-    local resolved_dir = resolve_ansible_cfg_dir_for_file(file_path)
-    local cfg = M.config
-    if resolved_dir and (not M.config.ansible_cfg_directory or M.config.ansible_cfg_directory == "") then
-        cfg = vim.tbl_deep_extend("force", {}, M.config, { ansible_cfg_directory = resolved_dir })
-    end
     Core.debug(cfg, string.format("access vault_type=%s file=%s", vault_type, file_path))
+
     local decrypted_value, err
     if vault_type == Core.VaultType.inline then
         if not vault_block then
@@ -128,7 +130,7 @@ function M.vault_access(bufnr)
         vim.notify("Failed to decrypt " .. vault_name .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
         return
     end
-    Core.debug(M.config, string.format("decrypted length=%d", #decrypted_value))
+    Core.debug(cfg, string.format("decrypted length=%d", #decrypted_value))
 
     Popup.open(cfg, {
         bufnr = bufnr,
