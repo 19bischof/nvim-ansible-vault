@@ -88,6 +88,43 @@ function M.vault_access(bufnr)
         decrypted_value, err = Core.decrypt_file_vault(cfg, file_path)
     end
     if not decrypted_value then
+        -- Prompt for one-time password and retry once
+        local function retry_with_password()
+            -- Use secure hidden input
+            local pw = vim.fn.inputsecret("Vault password (one-time): ")
+            if not pw or pw == "" then
+                vim.notify("Decryption cancelled (no password provided)", vim.log.levels.WARN)
+                return
+            end
+            local retry_value, retry_err
+            if vault_type == Core.VaultType.inline then
+                if not vault_block or not vault_block.vault_content then
+                    vim.notify("Internal error: missing vault block for inline vault", vim.log.levels.ERROR)
+                    return
+                end
+                retry_value, retry_err = Core.decrypt_inline_content(cfg, vault_block.vault_content, { password = pw })
+            else
+                retry_value, retry_err = Core.decrypt_file_vault(cfg, file_path, { password = pw })
+            end
+            if not retry_value then
+                vim.notify("Failed to decrypt with provided password: " .. (retry_err or "unknown error"), vim.log.levels.ERROR)
+                return
+            end
+            Popup.open(cfg, {
+                bufnr = bufnr,
+                file_path = file_path,
+                vault_type = vault_type,
+                vault_name = vault_name,
+                decrypted_value = retry_value,
+                vault_block = vault_block,
+            })
+        end
+        -- Prefer prompting only on auth-related failures; best effort check
+        if err and (err:match("[Pp]assword") or err:match("[Vv]ault")) then
+            pcall(vim.cmd, "stopinsert")
+            vim.schedule(retry_with_password)
+            return
+        end
         vim.notify("Failed to decrypt " .. vault_name .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
         return
     end

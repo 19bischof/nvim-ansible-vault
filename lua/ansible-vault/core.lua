@@ -164,19 +164,35 @@ end
 
 ---@param config AnsibleVaultConfig
 ---@param vault_content string[]
+---@param opts? { password?: string }
 ---@return string|nil, string|nil
-function Core.decrypt_inline_content(config, vault_content)
+function Core.decrypt_inline_content(config, vault_content, opts)
     local stripped = {}
     for _, l in ipairs(vault_content) do
         stripped[#stripped + 1] = (l:gsub("^%s+", ""))
     end
     Core.debug(config, string.format("decrypt_inline via stdin(view) lines=%d", #stripped))
     local args = { get_executable(config), "view", "/dev/stdin" }
-    if config.vault_password_file then
+    local tmp_pw_file
+    if opts and opts.password and opts.password ~= "" then
+        tmp_pw_file = vim.fn.tempname()
+        local f = io.open(tmp_pw_file, "w")
+        if not f then
+            return nil, "Failed to create temporary password file"
+        end
+        f:write(opts.password)
+        f:write("\n")
+        f:close()
+        table.insert(args, "--vault-password-file")
+        table.insert(args, tmp_pw_file)
+    elseif config.vault_password_file then
         table.insert(args, "--vault-password-file")
         table.insert(args, config.vault_password_file)
     end
     local res = run_with_stdin(args, table.concat(stripped, "\n"), get_cwd(config))
+    if tmp_pw_file then
+        pcall(os.remove, tmp_pw_file)
+    end
     Core.debug(
         config,
         string.format("decrypt_inline(view) exit=%d out_len=%d err_len=%d", res.code or -1, #res.stdout, #res.stderr)
@@ -235,12 +251,30 @@ end
 
 ---@param config AnsibleVaultConfig
 ---@param file_path string
+---@param opts? { password?: string }
 ---@return string|nil, string|nil
-function Core.decrypt_file_vault(config, file_path)
+function Core.decrypt_file_vault(config, file_path, opts)
     Core.debug(config, string.format("decrypt_file via system file=%s", file_path))
-    local args = Core.get_vault_command(config, "view", file_path)
+    local args
+    local tmp_pw_file
+    if opts and opts.password and opts.password ~= "" then
+        tmp_pw_file = vim.fn.tempname()
+        local f = io.open(tmp_pw_file, "w")
+        if not f then
+            return nil, "Failed to create temporary password file"
+        end
+        f:write(opts.password)
+        f:write("\n")
+        f:close()
+        args = { get_executable(config), "view", "--vault-password-file", tmp_pw_file, file_path }
+    else
+        args = Core.get_vault_command(config, "view", file_path)
+    end
     local proc = vim.system(args, { text = true, cwd = get_cwd(config)  })
     local res = proc:wait()
+    if tmp_pw_file then
+        pcall(os.remove, tmp_pw_file)
+    end
     Core.debug(
         config,
         string.format(
