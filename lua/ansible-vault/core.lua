@@ -40,7 +40,7 @@ function Core.extract_encrypt_vault_ids(output)
     local ids = {}
     for id in list:gmatch("[^,]+") do
         local trimmed = (id:gsub("^%s+", ""):gsub("%s+$", ""))
-        if trimmed ~= "" then
+        if trimmed ~= "" and not vim.tbl_contains(ids, trimmed) then
             table.insert(ids, trimmed)
         end
     end
