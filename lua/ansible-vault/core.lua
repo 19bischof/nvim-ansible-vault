@@ -172,7 +172,7 @@ function Core.decrypt_inline_content(config, vault_content, opts)
         stripped[#stripped + 1] = (l:gsub("^%s+", ""))
     end
     Core.debug(config, string.format("decrypt_inline via stdin(view) lines=%d", #stripped))
-    local args = { get_executable(config), "view", "/dev/stdin" }
+    local args = { get_executable(config), "view", "-" }
     local tmp_pw_file
     if opts and opts.password and opts.password ~= "" then
         tmp_pw_file = vim.fn.tempname()
