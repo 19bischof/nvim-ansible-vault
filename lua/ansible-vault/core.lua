@@ -93,10 +93,13 @@ function Core.get_vault_command(config, action, file_path, opts)
 end
 
 function Core.check_is_file_vault(config, file_path)
-    local cmd = Core.get_vault_command(config, "view", file_path)
-    local proc = vim.system(cmd, { text = true, cwd = get_cwd(config)})
-    local res = proc:wait()
-    return res.code == 0
+    local file = io.open(file_path, "r")
+    if not file then
+        return false, "Failed to open file"
+    end
+    local first_line = file:read("*l") -- read the first line
+    file:close()
+    return first_line and first_line:match("^%$ANSIBLE_VAULT;") ~= nil
 end
 
 function Core.find_inline_vault_block_at_cursor(lines)
