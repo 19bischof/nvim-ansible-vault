@@ -25,6 +25,7 @@ function Popup.open(config, p)
     end
 
     Core.debug(config, string.format("open popup vault_type=%s name=%s", p.vault_type, p.vault_name))
+    local original_win = vim.api.nvim_get_current_win()
     -- Split without trimming to preserve genuine empty lines; then drop at most one synthetic trailing empty line
     local popup_lines = vim.split(p.decrypted_value, "\n", { plain = true })
     if #popup_lines > 0 and popup_lines[#popup_lines] == "" then
@@ -113,6 +114,15 @@ function Popup.open(config, p)
         end,
     })
 
+    local function close_popup()
+        if vim.api.nvim_win_is_valid(popup_win) then
+            vim.api.nvim_win_close(popup_win, true)
+        end
+        if vim.api.nvim_win_is_valid(original_win) then
+            vim.api.nvim_set_current_win(original_win)
+        end
+    end
+
     local function handle_save_and_close()
         local current_lines = vim.api.nvim_buf_get_lines(popup_buf, 0, -1, false)
         local current_content = table.concat(current_lines, "\n")
@@ -172,9 +182,7 @@ function Popup.open(config, p)
                                 return
                             end
                             after_inline_encrypt_and_apply(retry_lines)
-                            if vim.api.nvim_win_is_valid(popup_win) then
-                                vim.api.nvim_win_close(popup_win, true)
-                            end
+                            close_popup()
                         end)
                         return -- wait for async select
                     end
@@ -207,9 +215,7 @@ function Popup.open(config, p)
                             end
                             vim.notify("File encrypted successfully", vim.log.levels.INFO)
                             Core.debug(config, "file encrypted via popup save")
-                            if vim.api.nvim_win_is_valid(popup_win) then
-                                vim.api.nvim_win_close(popup_win, true)
-                            end
+                            close_popup()
                         end)
                         return -- wait for async select
                     end
@@ -221,15 +227,7 @@ function Popup.open(config, p)
             end
         end
 
-        if vim.api.nvim_win_is_valid(popup_win) then
-            vim.api.nvim_win_close(popup_win, true)
-        end
-    end
-
-    local function close_popup()
-        if vim.api.nvim_win_is_valid(popup_win) then
-            vim.api.nvim_win_close(popup_win, true)
-        end
+        close_popup()
     end
 
     local function copy_to_clipboard()
