@@ -25,6 +25,31 @@ end
 
 Core.VaultType = { inline = "inline", file = "file" }
 
+---Parse an ansible.cfg INI file and return vault_password_file from [defaults] if present.
+---@param cfg_path string
+---@return string|nil
+function Core.parse_vault_password_file_from_cfg(cfg_path)
+    local f = io.open(cfg_path, "r")
+    if not f then
+        return nil
+    end
+    local in_defaults = false
+    for line in f:lines() do
+        local section = line:match("^%[(.-)%]")
+        if section then
+            in_defaults = section:lower() == "defaults"
+        elseif in_defaults then
+            local key, value = line:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
+            if key and key == "vault_password_file" and value and value ~= "" then
+                f:close()
+                return vim.fn.expand(value)
+            end
+        end
+    end
+    f:close()
+    return nil
+end
+
 ---Parse ansible-vault error output to extract available encrypt vault-ids
 ---@param output string
 ---@return string[]|nil
