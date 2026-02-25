@@ -195,7 +195,7 @@ function M.encrypt_current_file(bufnr)
                         return
                     end
                     local retry_cmd =
-                        Core.get_vault_command(M.config, "encrypt", file_path, { encrypt_vault_id = choice })
+                        Core.get_vault_command(cfg, "encrypt", file_path, { encrypt_vault_id = choice })
                     local retry_proc = vim.system(retry_cmd, { text = true, cwd = cwd })
                     local retry_res = retry_proc:wait()
                     if retry_res.code ~= 0 then
