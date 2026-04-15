@@ -25,7 +25,6 @@ function Popup.open(config, p)
     end
 
     Core.debug(config, string.format("open popup vault_type=%s name=%s", p.vault_type, p.vault_name))
-    local original_win = vim.api.nvim_get_current_win()
     -- Split without trimming to preserve genuine empty lines; then drop at most one synthetic trailing empty line
     local popup_lines = vim.split(p.decrypted_value, "\n", { plain = true })
     if #popup_lines > 0 and popup_lines[#popup_lines] == "" then
@@ -115,6 +114,7 @@ function Popup.open(config, p)
     })
 
     local function close_popup()
+        pcall(vim.api.nvim_del_augroup_by_id, autocmd_group)
         if vim.api.nvim_win_is_valid(popup_win) then
             vim.api.nvim_win_close(popup_win, true)
         end
@@ -169,8 +169,11 @@ function Popup.open(config, p)
                                 vim.notify("Encryption cancelled (no vault-id selected)", vim.log.levels.WARN)
                                 return
                             end
-                            local retry_lines, retry_err =
-                                Core.encrypt_content(config, current_content, { encrypt_vault_id = choice })
+                            local retry_lines, retry_err = Core.encrypt_content(
+                                config,
+                                current_content,
+                                { encrypt_vault_id = choice }
+                            )
                             if not retry_lines then
                                 vim.notify(
                                     "Failed to encrypt with selected vault-id: " .. (retry_err or "unknown error"),
